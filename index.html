@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hidden Item Studio</title>
+<style>
+:root{--bg:#f3f4f6;--card:#fff;--text:#1f2937;--accent:#4f46e5;--border:#d1d5db;--ok:#22c55e}
+[data-theme=dark]{--bg:#111827;--card:#1f2937;--text:#f3f4f6;--accent:#818cf8;--border:#374151}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px}
+h1{font-size:1.3rem;margin:0}
+.layout{display:flex;flex-wrap:wrap;gap:16px;padding:0 16px 16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
+#stage{flex:3 1 400px}
+#side{flex:1 1 240px}
+button,label.btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.9rem;display:inline-block}
+button.sec{background:transparent;color:var(--text);border:1px solid var(--border)}
+button.on{outline:2px solid var(--ok)}
+#wrap{position:relative;display:inline-block;max-width:100%;line-height:0;user-select:none;touch-action:none}
+#img{max-width:100%;height:auto;display:block;border-radius:8px}
+.hs{position:absolute;border:2px dashed var(--accent);border-radius:50%;background:rgba(79,70,229,.2);transform:translate(-50%,-50%);cursor:move}
+.hs.found{border:3px solid var(--ok);background:rgba(34,197,94,.35);border-style:solid}
+.hs .h{position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:nwse-resize}
+.hs.play{cursor:default}
+ul{list-style:none;padding:0;margin:8px 0}
+li{display:flex;gap:6px;align-items:center;margin:4px 0}
+li input{flex:1;min-width:0;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)}
+li.found span{text-decoration:line-through;color:var(--ok)}
+#badge{background:var(--accent);color:#fff;border-radius:99px;padding:2px 10px;font-weight:bold}
+#confetti{position:fixed;inset:0;pointer-events:none;z-index:50}
+dialog{border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);text-align:center}
+#msg{color:#ef4444;min-height:1.2em;font-size:.85rem}
+</style>
+</head>
+<body>
+<header>
+ <h1>🔍 Hidden Item Studio</h1>
+ <div>
+  <button id="mEdit" class="on">📝 Editor</button>
+  <button id="mPlay" class="sec">▶️ Play</button>
+  <label class="btn">🖼️ Upload<input id="file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden></label>
+  <button id="theme" class="sec">🌓</button>
+  <button id="fs" class="sec">⛶</button>
+ </div>
+</header>
+<div class="layout">
+ <div id="stage" class="card"><div id="wrap"><img id="img" src="default.jpg" alt="Puzzle" draggable="false"></div></div>
+ <div id="side" class="card">
+  <h3>Targets <span id="badge" hidden>0 / 0</span></h3>
+  <div id="msg"></div>
+  <p id="hint">Click the image to add a target.</p>
+  <ul id="list"></ul>
+  <button id="restart" class="sec" hidden>↻ Restart</button>
+ </div>
+</div>
+<canvas id="confetti"></canvas>
+<dialog id="win"><h2>🎉 You found everything!</h2><button id="again">Play Again</button> <button id="cancel" class="sec">Cancel</button></dialog>
+<script>
+const $=id=>document.getElementById(id);
+const wrap=$('wrap'),img=$('img'),list=$('list');
+let spots=[],mode='edit',nid=1;
+// audio
+let ac;
+function tone(freqs,dur,type){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+ freqs.forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+i*dur;
+ o.type=type;o.frequency.value=f;g.gain.setValueAtTime(.15,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
+ o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+dur)})}catch(e){}}
+const good=()=>tone([660,880],.12,'sine'),bad=()=>tone([140],.25,'sawtooth'),win=()=>tone([523,659,784,1047],.15,'triangle');
+function msg(t){$('msg').textContent=t;setTimeout(()=>{if($('msg').textContent===t)$('msg').textContent=''},3000)}
+function pct(e){const r=img.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*100,y:(e.clientY-r.top)/r.height*100}}
+function render(){
+ wrap.querySelectorAll('.hs').forEach(n=>n.remove());list.innerHTML='';
+ spots.forEach(s=>{
+  const d=document.createElement('div');d.className='hs'+(mode==='play'?' play':'')+(s.found?' found':'');
+  d.style.cssText+=`left:${s.x}%;top:${s.y}%;width:${s.r*2}%;aspect-ratio:1`;
+  if(mode==='play'){d.style.display=s.found?'block':'none'}
+  else{const h=document.createElement('div');h.className='h';d.appendChild(h);
+   d.onpointerdown=e=>{e.stopPropagation();e.preventDefault();d.setPointerCapture(e.pointerId);
+    const resize=e.target===h;
+    d.onpointermove=ev=>{const p=pct(ev);if(resize)s.r=Math.max(2,Math.min(30,Math.hypot(p.x-s.x,(p.y-s.y)*img.clientHeight/img.clientWidth)));
+     else{s.x=Math.max(0,Math.min(100,p.x));s.y=Math.max(0,Math.min(100,p.y))}
+     d.style.left=s.x+'%';d.style.top=s.y+'%';d.style.width=s.r*2+'%'};
+    d.onpointerup=()=>{d.onpointermove=d.onpointerup=null}};
+   d.onclick=e=>e.stopPropagation()}
+  wrap.appendChild(d);
+  const li=document.createElement('li');if(s.found)li.className='found';
+  if(mode==='edit'){const i=document.createElement('input');i.value=s.name;i.oninput=()=>s.name=i.value;
+   const x=document.createElement('button');x.className='sec';x.textContent='✕';x.onclick=()=>{spots=spots.filter(o=>o!==s);render()};li.append(i,x)}
+  else{const sp=document.createElement('span');sp.textContent=s.found?s.name:'???';li.append(sp)}
+  list.appendChild(li)});
+ const f=spots.filter(s=>s.found).length;$('badge').textContent=f+' / '+spots.length;
+}
+wrap.addEventListener('click',e=>{
+ if(e.target!==img)return;const p=pct(e);
+ if(mode==='edit'){const n=prompt('Name this target:','Item '+nid);if(n===null)return;
+  spots.push({name:n.trim()||'Item '+nid,x:p.x,y:p.y,r:5,found:false});nid++;render();return}
+ const hit=spots.find(s=>!s.found&&Math.hypot(p.x-s.x,(p.y-s.y)*img.clientHeight/img.clientWidth)<=s.r);
+ if(hit){hit.found=true;render();
+  if(spots.every(s=>s.found)){win();confetti();$('win').showModal()}else good()}else bad()});
+function setMode(m){mode=m;spots.forEach(s=>s.found=false);
+ $('mEdit').className=m==='edit'?'on':'sec';$('mPlay').className=m==='play'?'on':'sec';
+ $('badge').hidden=$('restart').hidden=m!=='play';
+ $('hint').textContent=m==='edit'?'Click the image to add a target.':'Click the image to find hidden objects.';
+ if(m==='play'&&!spots.length){msg('Add targets in Editor first.');m=mode='edit';$('mEdit').className='on';$('mPlay').className='sec';$('badge').hidden=$('restart').hidden=true}
+ render()}
+$('mEdit').onclick=()=>setMode('edit');$('mPlay').onclick=()=>setMode('play');
+$('restart').onclick=()=>setMode('play');
+$('again').onclick=()=>{$('win').close();setMode('play')};
+$('cancel').onclick=()=>$('win').close();
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;
+ const ok=/\.(png|jpe?g)$/i.test(f.name)&&/^image\/(png|jpeg)$/.test(f.type);
+ if(!ok){msg('Only .png, .jpg, .jpeg images allowed.');e.target.value='';return}
+ img.src=URL.createObjectURL(f);spots=[];setMode('edit')};
+img.onerror=()=>msg('Could not load image.');
+$('theme').onclick=()=>{const d=document.documentElement;d.dataset.theme=d.dataset.theme==='dark'?'':'dark'};
+$('fs').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});
+function confetti(){const c=$('confetti'),x=c.getContext('2d');c.width=innerWidth;c.height=innerHeight;
+ const ps=Array.from({length:150},()=>({x:innerWidth/2,y:innerHeight/2,vx:(Math.random()-.5)*16,vy:Math.random()*-14-2,s:4+Math.random()*6,c:`hsl(${Math.random()*360},90%,60%)`}));
+ let n=0;(function f(){x.clearRect(0,0,c.width,c.height);ps.forEach(p=>{p.vy+=.3;p.x+=p.vx;p.y+=p.vy;x.fillStyle=p.c;x.fillRect(p.x,p.y,p.s,p.s)});
+ if(++n<180)requestAnimationFrame(f);else x.clearRect(0,0,c.width,c.height)})()}
+render();
+</script>
+</body>
+</html>
