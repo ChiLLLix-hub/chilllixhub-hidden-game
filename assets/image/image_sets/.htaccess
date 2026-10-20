@@ -1,0 +1,5 @@
+php_flag engine off
+RemoveHandler .php .phtml .php3 .php5 .phar
+<FilesMatch "\.(php|phtml|phar|cgi|pl)$">
+  Require all denied
+</FilesMatch>

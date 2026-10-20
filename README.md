@@ -45,3 +45,14 @@ hidden-item-studio/
 ├── index.html      # Complete app (HTML, CSS, JavaScript in one file)
 └── README.md       # Project documentation
 
+
+---
+
+## 🗄️ Server Setup (shared PHP hosting + phpMyAdmin)
+
+1. In phpMyAdmin, select your database and import `schema.sql`.
+2. Copy `api/config.example.php` to `api/config.php` and enter your DB credentials.
+3. Upload all files to your `html` directory. Ensure `assets/image/image_sets/` is writable (chmod 755/775).
+4. Open the site and click **Upload**. The first password you enter (min 8 chars) becomes the admin password (stored as a bcrypt hash in the `settings` table; delete the `admin_hash` row to reset).
+5. Admin: Upload image → add targets → **Save**. Images go to `assets/image/image_sets/`; the DB stores the path and target coordinates.
+6. Players choose a puzzle from the dropdown (or share `?puzzle=ID`) and can only play; editing requires the admin password. Concurrent edits are detected via a version number.

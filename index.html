@@ -31,6 +31,7 @@ li.found span{text-decoration:line-through;color:var(--ok)}
 #badge{background:var(--accent);color:#fff;border-radius:99px;padding:2px 10px;font-weight:bold}
 #confetti{position:fixed;inset:0;pointer-events:none;z-index:50}
 dialog{border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);text-align:center}
+select{padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);max-width:160px}
 #msg{color:#ef4444;min-height:1.2em;font-size:.85rem}
 </style>
 </head>
@@ -40,7 +41,10 @@ dialog{border:1px solid var(--border);border-radius:12px;background:var(--card);
  <div>
   <button id="mEdit" class="on">📝 Editor</button>
   <button id="mPlay" class="sec">▶️ Play</button>
-  <label class="btn">🖼️ Upload<input id="file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden></label>
+  <select id="pz" title="Choose puzzle"></select>
+  <button id="up">🖼️ Upload</button><input id="file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
+  <button id="save" class="sec" hidden>💾 Save</button>
+  <button id="del" class="sec" hidden>🗑️</button>
   <button id="theme" class="sec">🌓</button>
   <button id="fs" class="sec">⛶</button>
  </div>
@@ -99,20 +103,69 @@ wrap.addEventListener('click',e=>{
  const hit=spots.find(s=>!s.found&&Math.hypot(p.x-s.x,(p.y-s.y)*img.clientHeight/img.clientWidth)<=s.r);
  if(hit){hit.found=true;render();
   if(spots.every(s=>s.found)){win();confetti();$('win').showModal()}else good()}else bad()});
-function setMode(m){mode=m;spots.forEach(s=>s.found=false);
+var setMode=function(m){if(m==='edit'&&!admin)m='play';mode=m;spots.forEach(s=>s.found=false);
  $('mEdit').className=m==='edit'?'on':'sec';$('mPlay').className=m==='play'?'on':'sec';
  $('badge').hidden=$('restart').hidden=m!=='play';
  $('hint').textContent=m==='edit'?'Click the image to add a target.':'Click the image to find hidden objects.';
- if(m==='play'&&!spots.length){msg('Add targets in Editor first.');m=mode='edit';$('mEdit').className='on';$('mPlay').className='sec';$('badge').hidden=$('restart').hidden=true}
- render()}
-$('mEdit').onclick=()=>setMode('edit');$('mPlay').onclick=()=>setMode('play');
-$('restart').onclick=()=>setMode('play');
+ if(m==='play'&&!spots.length&&!admin){msg('This puzzle has no targets yet.')}
+ else if(m==='play'&&!spots.length){msg('Add targets in Editor first.');m=mode='edit';$('mEdit').className='on';$('mPlay').className='sec';$('badge').hidden=$('restart').hidden=true}
+ render()};
+$('mPlay').onclick=()=>setMode('play');$('restart').onclick=()=>setMode('play');
 $('again').onclick=()=>{$('win').close();setMode('play')};
 $('cancel').onclick=()=>$('win').close();
-$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;
+// ---- server sync ----
+let admin=false,csrf=null,cur={id:0,title:'',image_url:'default.jpg',version:0};
+async function api(action,opt={}){
+ const o={credentials:'same-origin',headers:{}};
+ if(opt.json){o.method='POST';o.headers['Content-Type']='application/json';o.body=JSON.stringify(opt.json)}
+ if(opt.form){o.method='POST';o.body=opt.form}
+ if(csrf)o.headers['X-CSRF-Token']=csrf;
+ const r=await fetch('api/api.php?action='+action+(opt.q||''),o);
+ let d={};try{d=await r.json()}catch(e){}
+ if(!r.ok){const er=new Error(d.error||'Request failed');er.status=r.status;er.data=d;throw er}
+ return d}
+async function ensureAdmin(){
+ if(admin)return true;
+ const pw=prompt('Admin password:');if(!pw)return false;
+ try{const d=await api('login',{json:{password:pw}});admin=true;csrf=d.csrf;$('save').hidden=$('del').hidden=false;return true}
+ catch(e){msg(e.message);return false}}
+async function loadList(sel){
+ try{const l=await api('list');$('pz').innerHTML='';
+  l.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.title;$('pz').appendChild(o)});
+  if(sel)$('pz').value=sel;return l}
+ catch(e){msg('Server unavailable: '+e.message);return[]}}
+async function openPuzzle(id,m){
+ try{const p=await api('get',{q:'&id='+encodeURIComponent(id)});
+  cur=p;img.src=p.image_url;nid=p.spots.length+1;
+  spots=p.spots.map(s=>({...s,found:false}));$('pz').value=p.id;
+  history.replaceState(null,'','?puzzle='+p.id);
+  setMode(m||(admin?'edit':'play'))}
+ catch(e){msg(e.message)}}
+$('pz').onchange=()=>openPuzzle($('pz').value,'play');
+$('up').onclick=async()=>{if(await ensureAdmin())$('file').click()};
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;
  const ok=/\.(png|jpe?g)$/i.test(f.name)&&/^image\/(png|jpeg)$/.test(f.type);
- if(!ok){msg('Only .png, .jpg, .jpeg images allowed.');e.target.value='';return}
- img.src=URL.createObjectURL(f);spots=[];setMode('edit')};
+ e.target.value='';
+ if(!ok){msg('Only .png, .jpg, .jpeg images allowed.');return}
+ const fd=new FormData();fd.append('image',f);
+ try{const d=await api('upload',{form:fd});
+  cur={id:0,title:'',image_url:d.image_url,version:0};img.src=d.image_url;spots=[];setMode('edit');
+  msg('Uploaded. Add targets, then press Save.')}
+ catch(e){msg(e.message)}};
+$('save').onclick=async()=>{
+ if(!admin)return;
+ let t=cur.title;if(!cur.id){t=prompt('Puzzle title:',t||'New puzzle');if(!t||!t.trim())return}
+ try{const d=await api('save',{json:{id:cur.id,version:cur.version,title:t.trim(),image_url:cur.image_url,
+   spots:spots.map(({name,x,y,r})=>({name,x,y,r}))}});
+  cur.id=d.id;cur.version=d.version;cur.title=t.trim();await loadList(d.id);history.replaceState(null,'','?puzzle='+d.id);msg('Saved ✔')}
+ catch(e){msg(e.message)}};
+$('del').onclick=async()=>{
+ if(!admin||!cur.id||!confirm('Delete this puzzle?'))return;
+ try{await api('delete',{json:{id:cur.id}});const l=await loadList();
+  if(l.length)openPuzzle(l[0].id);else{cur={id:0,title:'',image_url:'default.jpg',version:0};img.src='default.jpg';spots=[];setMode('edit')}}
+ catch(e){msg(e.message)}};
+// editing is admin-only
+$('mEdit').onclick=async()=>{if(await ensureAdmin())setMode('edit')};
 img.onerror=()=>msg('Could not load image.');
 $('theme').onclick=()=>{const d=document.documentElement;d.dataset.theme=d.dataset.theme==='dark'?'':'dark'};
 $('fs').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});
@@ -120,6 +173,11 @@ function confetti(){const c=$('confetti'),x=c.getContext('2d');c.width=innerWidt
  const ps=Array.from({length:150},()=>({x:innerWidth/2,y:innerHeight/2,vx:(Math.random()-.5)*16,vy:Math.random()*-14-2,s:4+Math.random()*6,c:`hsl(${Math.random()*360},90%,60%)`}));
  let n=0;(function f(){x.clearRect(0,0,c.width,c.height);ps.forEach(p=>{p.vy+=.3;p.x+=p.vx;p.y+=p.vy;x.fillStyle=p.c;x.fillRect(p.x,p.y,p.s,p.s)});
  if(++n<180)requestAnimationFrame(f);else x.clearRect(0,0,c.width,c.height)})()}
+(async()=>{
+ try{const st=await api('status');admin=st.admin;csrf=st.csrf;$('save').hidden=$('del').hidden=!admin}catch(e){}
+ const l=await loadList();if(!l.length){setMode(admin?'edit':'play');return}
+ const q=new URLSearchParams(location.search).get('puzzle');
+ openPuzzle(l.some(p=>String(p.id)===q)?q:l[0].id,'play')})();
 render();
 </script>
 </body>
