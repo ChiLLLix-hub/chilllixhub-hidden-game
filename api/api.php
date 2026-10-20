@@ -5,13 +5,14 @@ header('X-Content-Type-Options: nosniff');
 session_set_cookie_params(['httponly'=>true,'samesite'=>'Lax','secure'=>!empty($_SERVER['HTTPS'])]);
 session_start();
 
+function logErr(string $m){@file_put_contents(__DIR__.'/error.log','['.date('c').'] '.$m."\n",FILE_APPEND|LOCK_EX);}
 function out($d,int $c=200){http_response_code($c);echo json_encode($d);exit;}
 $cfgFile = dirname(__DIR__, 4) . '/private/config.php'; // prefer real config.php
 if(!is_file($cfgFile))out(['error'=>'Server not configured'],500);
 $cfg=require $cfgFile;
 try{$pdo=new PDO("mysql:host={$cfg['host']};dbname={$cfg['db']};charset=utf8mb4",$cfg['user'],$cfg['pass'],
  [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);}
-catch(Throwable $e){out(['error'=>'Database error'],500);}
+catch(Throwable $e){logErr('DB connect: '.$e->getMessage());out(['error'=>'Database error'],500);}
 
 $action=$_GET['action']??'';
 $isPost=$_SERVER['REQUEST_METHOD']==='POST';
@@ -93,4 +94,4 @@ case 'delete':
  $pdo->prepare('DELETE FROM puzzles WHERE id=?')->execute([(int)($body['id']??0)]);out(['ok'=>true]);
 default: out(['error'=>'Unknown action'],400);
 }
-}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();out(['error'=>'Server error'],500);}
+}catch(Throwable $e){logErr($e->getMessage().' @ '.$e->getFile().':'.$e->getLine());if($pdo->inTransaction())$pdo->rollBack();out(['error'=>'Server error'],500);}
