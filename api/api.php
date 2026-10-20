@@ -6,7 +6,7 @@ session_set_cookie_params(['httponly'=>true,'samesite'=>'Lax','secure'=>!empty($
 session_start();
 
 function out($d,int $c=200){http_response_code($c);echo json_encode($d);exit;}
-$cfgFile=__DIR__.'/config.php';
+$cfgFile = dirname(__DIR__, 4) . '/private/config.php'; // prefer real config.php
 if(!is_file($cfgFile))out(['error'=>'Server not configured'],500);
 $cfg=require $cfgFile;
 try{$pdo=new PDO("mysql:host={$cfg['host']};dbname={$cfg['db']};charset=utf8mb4",$cfg['user'],$cfg['pass'],
